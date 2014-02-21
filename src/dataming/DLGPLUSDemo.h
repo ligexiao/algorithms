@@ -10,13 +10,8 @@ using namespace std;
 #include <vector>
 #include <algorithm>
 #include <stdio.h>
-#ifdef linux
-#include <sys/time.h>
-#endif
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include <thread>
+#include <mutex>
 
 class DLGPLUSDemo
 {
@@ -40,8 +35,8 @@ public:
 
 	void print_all(string outFileName);
 
-	static DWORD WINAPI ThreadProc(LPVOID lpParam);
-
+	//static DWORD WINAPI ThreadProc(LPVOID lpParam);
+	static void ThreadFun( DLGPLUSDemo& dlgPlus, int vi );
 	void file2transactionMatrix(string inFileName);
 
 	void setExecuteTime(double executeTime)

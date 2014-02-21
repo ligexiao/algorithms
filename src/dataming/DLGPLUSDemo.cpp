@@ -2,9 +2,14 @@
 #include <set>
 #include <map>
 using namespace std;
-HANDLE hMutex;
-DWORD threadIds[ITEM_SIZE + 1];
-map<int, DWORD> map_subGraphIndex;
+
+#ifdef __linux__
+#include <sys/time.h>
+#endif
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 DLGPLUSDemo::DLGPLUSDemo()
 {
@@ -49,7 +54,7 @@ void DLGPLUSDemo::file2transactionMatrix(string fileName)
 	//³õÊ¼»¯µÄÏîÄ¿¼¯
 	itemsInit();
 
-	ifstream  input = ifstream(fileName.c_str());
+	ifstream  input(fileName.c_str());
 	if (!input) //ÎÄ¼þ´ò¿ªÊ§°Ü!
 	{
 		cout << "´æ·ÅÊÂÎñµÄÎÄ¼þtransction²»´æÔÚ£¬ÇëÏÈÊÖ¹¤½¨Á¢" << endl;
@@ -448,7 +453,7 @@ int DLGPLUSDemo::kcandSup(vector<int> vec)  //½«ºòÑ¡k+1Ïî¼¯ËùÓÐÏî¶ÔÓ¦µÄÁÐÏòÁ¿½øÐ
 }
 void DLGPLUSDemo::print_all(string outFileName)
 {
-	ofstream  outfile = ofstream(outFileName.c_str(), ofstream::trunc);
+	ofstream  outfile(outFileName.c_str(), ofstream::trunc);
 	if (!outfile)
 	{
 		cout << "out file error!!" << endl;
@@ -488,54 +493,22 @@ void DLGPLUSDemo::combineALlFrequentItems()
 
 
 }
-DWORD WINAPI DLGPLUSDemo::ThreadProc(LPVOID lpParam)
+
+/*Ïß³Ìº¯Êý*/
+void DLGPLUSDemo::ThreadFun(DLGPLUSDemo& dlgPlus, int vi)
 {
-	DLGPLUSDemo* pDlgplus = (DLGPLUSDemo*) lpParam;
-	DWORD threadId = GetCurrentThreadId();
-	int vi = 0;
-	for (int index = 1; index <= ITEM_SIZE; index++)
-	{
-		if (map_subGraphIndex[index] == threadId)
-		{
-			vi = index;
-		}
-	}
-	/*
-	DWORD dwWaitResult = WaitForSingleObject(
-	hMutex,	//signaled initially
-	INFINITE);
-	switch(dwWaitResult)
-	{
-	case WAIT_OBJECT_0:
-
-	//ºËÐÄ
-	pDlgplus->k_freq_to_k1_cand(vi ,pDlgplus->kvec[vi]);
-
-	if(!ReleaseMutex(hMutex))
-	{
-	cout<<"Release Mutex error: "<<GetLastError()<<endl;
-	}
-	break;
-	default:
-	cout<<"wait error: "<<GetLastError()<<endl;
-	ExitThread(0);
-	}*/
-
-	pDlgplus->k_freq_to_k1_cand(vi, pDlgplus->kvec[vi]);
-
-	return 1;
+	dlgPlus.k_freq_to_k1_cand(vi, dlgPlus.kvec[vi]);
 }
+
 void DLGPLUSDemo::associationRuleMining(int minsup, string inFileName, string outFileName)
 {
-//	DWORD start = GetTickCount();
-#ifdef linux
+#ifdef __linux__
 	timeval start, end;
 	gettimeofday(&start, NULL);
 #endif
 #ifdef _WIN32
 	DWORD start = GetTickCount();
 #endif
-
 	setMinsup(minsup);
 
 	//input file transaction Records to transaction matrix
@@ -559,31 +532,12 @@ void DLGPLUSDemo::associationRuleMining(int minsup, string inFileName, string ou
 	//Êä³ö¸÷¸ö×Ó¹ØÁªÍ¼
 	//printVTable();
 
-	//Multithread
-	hMutex = CreateMutex(
-		NULL,	//default security attribute
-		FALSE,	//not belong to current process
-		NULL);	//unnamed
-	if (hMutex == NULL)
+	thread ths[maxThreadNum+1];
+	for (int i = 1; i <= maxThreadNum; i++)
 	{
-		cout << "CreateMutex error: " << GetLastError() << endl;
+		ths[i] = thread(ThreadFun, ref(*this), i);
 	}
-
-	HANDLE tHandles[ITEM_SIZE + 1];
-	HANDLE* THandles = tHandles + 1;
-	int i = 1;
-	for (; i <= maxThreadNum; i++) // (1)Ö»·¢Æð maxThreadNum ¸öÏß³Ì
-	{
-
-		tHandles[i] = CreateThread(
-			NULL,
-			0,
-			ThreadProc,
-			this,
-			0,
-			//	&threadIds[i]);
-			&map_subGraphIndex[i]); //associate threadId with index
-	}
+	
 
 	//(2)Ê£ÏÂµÄ£ºmaxThreadNum + 1ÖÁITEM_SIZE¸ö×é³ÉµÄ×Ó¹ØÁªÍ¼Ôò¾ùÔÚÖ÷Ïß³ÌÖÐÖ´ÐÐ
 	for (int j = maxThreadNum + 1; j <= ITEM_SIZE; j++)
@@ -591,24 +545,10 @@ void DLGPLUSDemo::associationRuleMining(int minsup, string inFileName, string ou
 		this->k_freq_to_k1_cand(j, this->kvec[j]);
 	}
 
-	DWORD dwWaitResult = WaitForMultipleObjects(
-		maxThreadNum,
-		THandles,
-		TRUE,
-		INFINITE);
-	switch (dwWaitResult)
+	for (int i = 1; i <= maxThreadNum; i++)
 	{
-	case WAIT_OBJECT_0:
-		break;
-	default:
-		cout << "\nWait error" << GetLastError() << endl;
+		ths[i].join();
 	}
-
-	for (i = 1; i <= maxThreadNum; i++)
-	{
-		CloseHandle(tHandles[i]);
-	}
-
 	//combine
 //	DWORD before = GetTickCount();
 	combineALlFrequentItems();
@@ -618,16 +558,15 @@ void DLGPLUSDemo::associationRuleMining(int minsup, string inFileName, string ou
 	//frequent items to output file
 	print_all(outFileName.c_str());
 
-	ofstream  outfile = ofstream(outFileName.c_str(), ofstream::app);
+	ofstream  outfile(outFileName.c_str(), ofstream::app);
 	if (!outfile)
 	{
 		cout << "out file error!!" << endl;
 		return;
 	}
 
-//	DWORD end = GetTickCount();
 	double totalTime=0.0;
-#ifdef linux
+#ifdef __linux__
 	gettimeofday(&end, NULL);
 	totalTime = 1000 * (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000;
 #endif
@@ -639,14 +578,14 @@ void DLGPLUSDemo::associationRuleMining(int minsup, string inFileName, string ou
 	outfile << "execute time:" << getExecuteTime() << endl;
 	cout << "execute time:" << getExecuteTime() << endl;
 }
-void main()
+int main()
 {
 	DLGPLUSDemo dlgplus;
 
 	//set min support
 	dlgplus.setMinsup(180);
 	string my_inFileName("transction9000.txt");
-	////string my_inFileName("test1.txt");
+	//string my_inFileName("test1.txt");
 	string my_outFileName("outfile9000.txt");
 	string strInc = my_outFileName;
 	
@@ -665,5 +604,6 @@ void main()
 	
 	dlgplus.associationRuleMining(dlgplus.getMinsup(), my_inFileName, my_outFileName);
 
+    return 0;
 }
                                                                                                                                                                                                                                                                                                                                                                                  
